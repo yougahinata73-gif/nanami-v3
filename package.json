@@ -1,0 +1,8 @@
+{
+  "name": "nanami-v3",
+  "version": "3.0.0",
+  "description": "NANAMI v3 — Smart Transport Bidding System (zero dependencies)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=16" }
+}

@@ -1,0 +1,157 @@
+// ================= NANAMI v3 — REAL SERVER (zero-dependency Node) =================
+// Company: Krishang Alloy | Sealed bidding | Rating engine | Trips (Phase-2 API ready)
+const http=require('http'),fs=require('fs'),path=require('path'),crypto=require('crypto');
+const PORT=process.env.PORT||3100;
+const DBF=path.join(__dirname,'db.json');
+
+const CITIES=[
+ {n:"Chakan, Maharashtra",pin:"410501",km:294},{n:"Mumbai, Maharashtra",pin:"400001",km:205},
+ {n:"Pune, Maharashtra",pin:"411001",km:320},{n:"Surat, Gujarat",pin:"395003",km:95},
+ {n:"Vapi, Gujarat",pin:"396191",km:24},{n:"Nashik, Maharashtra",pin:"422001",km:158}];
+
+function seed(){const day=86400000,now=Date.now();
+ const mk=(id,city,pin,km,wt,qbr,bids,award,dA,p,veh,body)=>({id,pickup:"Survey No-336&334, P2 Village-Vankas, Tal-Umbergaon, Valsad, Gujarat 396150",
+  city:city,pin:pin,km:km,weight:wt,unit:"MT",vehicle:veh,body:body,commodity:"Aluminum Alloy",party:p||"",qbr:qbr,remarks:"",
+  openT:now-dA*day-40*60000,closeT:now-dA*day,tenureMin:40,vendors:["annu","kk","krishna","ram"],cancelled:false,
+  created:now-dA*day-45*60000,bids:bids,award:award});
+ return {nextRfq:99205,nextTrip:502,
+  factory:{id:"factory",pass:"factory123",name:"Krishang Alloy"},
+  transporters:[{id:"annu",pass:"pass123",name:"Annu Roadlines",blocked:false},
+    {id:"kk",pass:"pass123",name:"K K Roadlines Corporation",blocked:false},
+    {id:"krishna",pass:"pass123",name:"Shree Krishna Road Carrier",blocked:false},
+    {id:"ram",pass:"pass123",name:"Shree Ram Roadlines",blocked:false}],
+  rfqs:[mk(99201,"Chakan, Maharashtra","410501",294,10,22000,{annu:[21699],kk:[21850],krishna:[22010]},{id:"annu",rate:21699},2,"MAP Alloys","Truck","Dala Body"),
+        mk(99202,"Pune, Maharashtra","411001",320,24,44000,{annu:[42800],ram:[43500]},{id:"annu",rate:42800},2,"Aakar Foundry","Truck","Dala Body"),
+        mk(99203,"Surat, Gujarat","395003",95,12,16500,{kk:[16200],krishna:[16350]},{id:"kk",rate:16200},1,"","Truck","Dala Body")],
+  trips:[{id:501,party:"MAP Alloys",city:"Chakan, Maharashtra",pin:"410501",mob:"9822011204",gadi:"DD 01 E 9222 — SUNIL",rfq:99201,status:"done",
+    startedAt:now-3*day,consentAt:now-3*day+10*60000,deliveredAt:now-3*day+8*3600000,
+    notes:[{t:now-3*day+10*60000,txt:"✅ Driver consent — SIM tracking ON"},{t:now-3*day+8*3600000,txt:"🏁 Delivered — Chakan"}]}]};}
+let DB=null;
+function load(){try{DB=JSON.parse(fs.readFileSync(DBF,'utf8'));}catch(e){DB=null;}
+ if(!DB||!DB.factory){DB=seed();save();}}
+function save(){fs.writeFileSync(DBF,JSON.stringify(DB));}load();
+
+// ---------- ENGINE ----------
+const nowI=()=>Date.now();
+const isLive=r=>!r.cancelled&&!r.award&&r.openT<=nowI()&&nowI()<r.closeT;
+const isClosed=r=>!r.cancelled&&nowI()>=r.closeT;
+const finals=r=>{const o={};for(const k in r.bids)o[k]=r.bids[k][r.bids[k].length-1];return o;};
+function ranks(r){const f=finals(r);const a=Object.keys(f).map(id=>({id:id,rate:f[id]})).sort((x,y)=>x.rate-y.rate);
+ let rk=0,pv=null;a.forEach(x=>{rk=(pv!==null&&x.rate===pv)?rk:rk+1;x.rank=rk;pv=x.rate;});return a;}
+function ratingOf(tid){const n=nowI(),from=n-10*86400000;let pts=[];
+ DB.rfqs.filter(r=>r.closeT<n&&r.closeT>=from&&r.qbr>0&&!r.cancelled).forEach(r=>{const f=finals(r);
+  if(f[tid]!==undefined)pts.push(Math.max(0,(r.qbr-f[tid])/r.qbr*100));});
+ if(!pts.length)return 3.0;const avg=pts.reduce((a,b)=>a+b,0)/pts.length;
+ return Math.min(5,Math.round((3+Math.min(2,avg))*10)/10);}
+
+// ---------- AUTH ----------
+const TOK=new Map();
+const issue=u=>{const t=crypto.randomBytes(16).toString('hex');TOK.set(t,u);return t;};
+const auth=h=>{const a=h['authorization']||'';return a.startsWith('Bearer ')?TOK.get(a.slice(7)):null;};
+
+// ---------- ROLE-SAFE STATE (sealed logic) ----------
+function stateFor(u){
+ const stars={};DB.transporters.forEach(t=>stars[t.id]=ratingOf(t.id));
+ if(u.role==='factory'){
+  const rfqs=DB.rfqs.filter(r=>!r.cancelled||true).map(r=>{ // company sees all incl cancelled flag
+   const o=Object.assign({},r);
+   if(isLive(r)||(!isClosed(r)&&!r.award)){o.bids={};o.bc=Object.keys(r.bids).length;}
+   return o;});
+  return {ok:true,me:{role:'factory',id:DB.factory.id,name:DB.factory.name},stars:stars,
+   transporters:DB.transporters.map(t=>({id:t.id,name:t.name,blocked:t.blocked})),rfqs:rfqs,trips:DB.trips,serverNow:nowI()};
+ }
+ const t=DB.transporters.find(x=>x.id===u.id);
+ const mine=DB.rfqs.filter(r=>!r.cancelled&&r.vendors.indexOf(u.id)>=0).map(r=>{
+  if(isLive(r)||(!isClosed(r)&&!r.award)){
+   const o=Object.assign({},r);o.bids=r.bids[u.id]?{[u.id]:r.bids[u.id]}:{};delete o.party;delete o.award;return o;}
+  const rk=ranks(r);const m=rk.find(x=>x.id===u.id);
+  const o=Object.assign({},r);
+  delete o.bids;delete o.party;delete o.award;delete o.vendors;
+  o.won=!!(r.award&&r.award.id===u.id);o.myRank=m?m.rank:null;o.myRate=m?m.rate:null;
+  return o;});
+ return {ok:true,me:{role:'tpt',id:t.id,name:t.name},stars:stars,
+  transporters:DB.transporters.map(x=>({id:x.id,name:x.name,blocked:x.blocked})),rfqs:mine,trips:[],serverNow:nowI()};
+}
+
+// ---------- HTTP ----------
+const J=(res,code,obj)=>{res.writeHead(code,{'Content-Type':'application/json'});res.end(JSON.stringify(obj));};
+function body(req){return new Promise(res=>{let b='';req.on('data',c=>b+=c);req.on('end',()=>{try{res(JSON.parse(b||'{}'));}catch(e){res({});}});});}
+http.createServer(async(req,res)=>{
+ const u=req.url.split('?')[0];
+ if(req.method==='GET'&&(u==='/'||u==='/index.html')){
+  res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
+  return res.end(fs.readFileSync(path.join(__dirname,'index.html')));}
+ if(u==='/api/state'&&req.method==='GET'){const me=auth(req.headers);if(!me)return J(res,401,{ok:false,err:'login phir se'});return J(res,200,stateFor(me));}
+ if(req.method!=='POST')return J(res,404,{ok:false,err:'kuch nahi mila'});
+ const d=await body(req);
+ if(u==='/api/login'){
+  if(d.id===DB.factory.id&&d.pass===DB.factory.pass)return J(res,200,{ok:true,token:issue({role:'factory'}),role:'factory',id:'factory',name:DB.factory.name});
+  const t=DB.transporters.find(x=>x.id===String(d.id||'').toLowerCase());
+  if(t&&t.pass===d.pass){if(t.blocked)return J(res,403,{ok:false,err:'ID block hai — company se baat karo'});
+   return J(res,200,{ok:true,token:issue({role:'tpt',id:t.id}),role:'tpt',id:t.id,name:t.name});}
+  return J(res,401,{ok:false,err:'Galat ID ya password'});}
+ const me=auth(req.headers);if(!me)return J(res,401,{ok:false,err:'login phir se'});
+ const isF=me.role==='factory';
+ if(u==='/api/rfq'&&isF){
+  const o=+d.openT,cl=+d.closeT;if(!(o<cl))return J(res,400,{ok:false,err:'Closing time, opening ke BAAD rakhna'});
+  const vs=(d.vendors||[]).filter(v=>DB.transporters.some(t=>t.id===v&&!t.blocked));
+  if(!vs.length)return J(res,400,{ok:false,err:'Kam se kam 1 transporter chuno'});
+  const r={id:DB.nextRfq++,pickup:"Survey No-336&334, P2 Village-Vankas, Tal-Umbergaon, Valsad, Gujarat 396150",
+   city:String(d.city||''),pin:String(d.pin||''),km:+d.km||0,weight:Math.max(1,parseFloat(d.weight)||12),unit:'MT',
+   vehicle:String(d.vehicle||'Truck'),body:String(d.body||'Dala Body'),commodity:String(d.commodity||'Aluminum Alloy'),
+   party:String(d.party||'').slice(0,60),qbr:parseFloat(d.qbr)||0,remarks:String(d.remarks||'').slice(0,200),
+   openT:o,closeT:cl,tenureMin:Math.round((cl-o)/60000),vendors:vs,cancelled:false,created:nowI(),bids:{},award:null};
+  DB.rfqs.push(r);save();return J(res,200,{ok:true,id:r.id});}
+ if(u==='/api/bid'&&!isF){
+  const r=DB.rfqs.find(x=>x.id===+d.rfqId);if(!r)return J(res,404,{ok:false,err:'RFQ nahi mila'});
+  if(r.vendors.indexOf(me.id)<0)return J(res,403,{ok:false,err:'Ye RFQ aapke liye nahi'});
+  if(!isLive(r))return J(res,400,{ok:false,err:'⏰ Samay khatam — server ne rok diya'});
+  const v=parseFloat(d.rate);if(!v||v<=0)return J(res,400,{ok:false,err:'Rate sahi likho'});
+  r.bids[me.id]=r.bids[me.id]||[];
+  if(r.bids[me.id].length>=3)return J(res,400,{ok:false,err:'3 mauke khatam — ab change nahi 🔒'});
+  r.bids[me.id].push(v);save();return J(res,200,{ok:true});}
+ if(u==='/api/award'&&isF){
+  const r=DB.rfqs.find(x=>x.id===+d.rfqId);if(!r)return J(res,404,{ok:false,err:'RFQ nahi mila'});
+  if(!isClosed(r)||r.award)return J(res,400,{ok:false,err:'Abhi award nahi ho sakta'});
+  const f=finals(r);if(f[d.tid]===undefined)return J(res,400,{ok:false,err:'Bid nahi mila'});
+  r.award={id:d.tid,rate:f[d.tid],ts:nowI()};save();return J(res,200,{ok:true});}
+ if(u==='/api/cancel'&&isF){
+  const r=DB.rfqs.find(x=>x.id===+d.rfqId);if(r&&!r.award){r.cancelled=true;save();return J(res,200,{ok:true});}
+  return J(res,400,{ok:false,err:'Cancel nahi hua'});}
+ if(u==='/api/tpt/add'&&isF){
+  const id=String(d.id||'').toLowerCase().replace(/[^a-z0-9_]/g,'');
+  if(id.length<3||!d.name)return J(res,400,{ok:false,err:'ID+Naam dono likho'});
+  if(DB.transporters.some(x=>x.id===id)||id===DB.factory.id)return J(res,400,{ok:false,err:'Ye ID pehle se hai'});
+  DB.transporters.push({id:id,pass:String(d.pass||'').trim()||'pass123',name:String(d.name).slice(0,40),blocked:false});save();return J(res,200,{ok:true});}
+ if(u==='/api/tpt/block'&&isF){const t=DB.transporters.find(x=>x.id===d.id);if(!t)return J(res,404,{ok:false,err:'nahi mila'});
+  t.blocked=!!d.blocked;save();return J(res,200,{ok:true});}
+ if(u==='/api/tpt/remove'&&isF){DB.transporters=DB.transporters.filter(x=>x.id!==d.id);save();return J(res,200,{ok:true});}
+ if(u==='/api/tpt/resetPass'&&isF){const t=DB.transporters.find(x=>x.id===d.id);if(!t)return J(res,404,{ok:false,err:'nahi mila'});
+  t.pass=String(d.pass||'').trim()||'pass123';save();return J(res,200,{ok:true});}
+ if(u==='/api/tpt/rename'&&isF){const t=DB.transporters.find(x=>x.id===d.id);if(!t)return J(res,404,{ok:false,err:'nahi mila'});
+  t.name=String(d.name||t.name).slice(0,40);save();return J(res,200,{ok:true});}
+ if(u==='/api/me'){
+  const acc=isF?DB.factory:DB.transporters.find(x=>x.id===me.id);
+  if(d.name){acc.name=String(d.name).slice(0,40);save();return J(res,200,{ok:true,name:acc.name});}
+  if(d.newPass){if(acc.pass!==d.oldPass)return J(res,400,{ok:false,err:'Purana password galat'});
+   if(String(d.newPass).trim().length<4)return J(res,400,{ok:false,err:'Kam se kam 4 akshar'});
+   acc.pass=String(d.newPass).trim();save();return J(res,200,{ok:true});}
+  return J(res,400,{ok:false,err:'kuch bhejo'});}
+ if(u==='/api/trip'&&isF){
+  const mob=String(d.mob||'').replace(/\D/g,'');
+  if(!String(d.party||'').trim())return J(res,400,{ok:false,err:'Party ka naam likho'});
+  if(mob.length!==10)return J(res,400,{ok:false,err:'Sahi 10-ank mobile daalo'});
+  if(!String(d.gadi||'').trim())return J(res,400,{ok:false,err:'Gaadi number chahiye'});
+  const t={id:DB.nextTrip++,party:String(d.party).slice(0,80),city:String(d.city||''),pin:String(d.pin||''),mob:mob,
+   gadi:String(d.gadi).slice(0,30),rfq:+d.rfq||0,status:'pend',startedAt:nowI(),consentAt:0,deliveredAt:0,
+   notes:[{t:nowI(),txt:'📱 Consent SMS bheja — '+mob}]};
+  DB.trips.unshift(t);save();return J(res,200,{ok:true,id:t.id});}
+ if(u==='/api/trip/status'&&isF){
+  const t=DB.trips.find(x=>x.id===+d.tripId);if(!t)return J(res,404,{ok:false,err:'Trip nahi mila'});
+  if(d.status==='live'&&t.status==='pend'){t.status='live';t.consentAt=nowI();t.notes.push({t:nowI(),txt:'✅ Driver ne SMS me ✓ dabaya — SIM tracking ON 🛰️'});}
+  else if(d.status==='done'&&t.status==='live'){t.status='done';t.deliveredAt=nowI();t.notes.push({t:nowI(),txt:'🏁 Delivered — '+t.party+' ('+t.city+')'});}
+  else return J(res,400,{ok:false,err:'Status badal nahi sakta'});
+  save();return J(res,200,{ok:true});}
+ if(u==='/api/reset'&&isF){DB=seed();save();return J(res,200,{ok:true});}
+ return J(res,404,{ok:false,err:'kuch nahi mila'});
+}).listen(PORT,'0.0.0.0',()=>console.log('🚚 NANAMI v3 LIVE on port '+PORT));
