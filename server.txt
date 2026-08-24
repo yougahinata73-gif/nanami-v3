@@ -27,9 +27,15 @@ function seed(){const day=86400000,now=Date.now();
     startedAt:now-3*day,consentAt:now-3*day+10*60000,deliveredAt:now-3*day+8*3600000,
     notes:[{t:now-3*day+10*60000,txt:"✅ Driver consent — SIM tracking ON"},{t:now-3*day+8*3600000,txt:"🏁 Delivered — Chakan"}]}]};}
 let DB=null;
-function load(){try{DB=JSON.parse(fs.readFileSync(DBF,'utf8'));}catch(e){DB=null;}
+// ---- PERMANENT DATA (free Upstash Redis REST). Env na ho to purani db.json file se chalega ----
+const RURL=process.env.UPSTASH_REDIS_REST_URL,RT=process.env.UPSTASH_REDIS_REST_TOKEN;
+async function rget(){const r=await fetch(RURL,{method:'POST',headers:{Authorization:'Bearer '+RT},body:JSON.stringify(['GET','nanamidb'])});const j=await r.json();return j.result;}
+function rset(v){fetch(RURL,{method:'POST',headers:{Authorization:'Bearer '+RT},body:JSON.stringify(['SET','nanamidb',v])}).catch(()=>{});}
+async function load(){DB=null;
+ if(RURL&&RT){try{const v=await rget();if(v)DB=JSON.parse(v);}catch(e){DB=null;}}
+ if(!DB){try{DB=JSON.parse(fs.readFileSync(DBF,'utf8'));}catch(e){DB=null;}}
  if(!DB||!DB.factory){DB=seed();save();}}
-function save(){fs.writeFileSync(DBF,JSON.stringify(DB));}load();
+function save(){const v=JSON.stringify(DB);try{fs.writeFileSync(DBF,v);}catch(e){} if(RURL&&RT)rset(v);}
 
 // ---------- ENGINE ----------
 const nowI=()=>Date.now();
@@ -76,7 +82,7 @@ function stateFor(u){
 // ---------- HTTP ----------
 const J=(res,code,obj)=>{res.writeHead(code,{'Content-Type':'application/json'});res.end(JSON.stringify(obj));};
 function body(req){return new Promise(res=>{let b='';req.on('data',c=>b+=c);req.on('end',()=>{try{res(JSON.parse(b||'{}'));}catch(e){res({});}});});}
-http.createServer(async(req,res)=>{
+const SRV=http.createServer(async(req,res)=>{
  const u=req.url.split('?')[0];
  if(req.method==='GET'&&(u==='/'||u==='/index.html')){
   res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
@@ -165,4 +171,5 @@ http.createServer(async(req,res)=>{
   save();return J(res,200,{ok:true});}
  if(u==='/api/reset'&&isF){DB=seed();save();return J(res,200,{ok:true});}
  return J(res,404,{ok:false,err:'kuch nahi mila'});
-}).listen(PORT,'0.0.0.0',()=>console.log('🚚 NANAMI v3 LIVE on port '+PORT));
+});
+load().then(()=>SRV.listen(PORT,'0.0.0.0',()=>console.log('🚚 NANAMI v3.2 LIVE on port '+PORT+(RURL?' + PERMANENT DB ☁️':' (file mode)'))));
