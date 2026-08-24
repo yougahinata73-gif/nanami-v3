@@ -58,7 +58,7 @@ function stateFor(u){
    if(isLive(r)||(!isClosed(r)&&!r.award)){o.bids={};o.bc=Object.keys(r.bids).length;}
    return o;});
   return {ok:true,me:{role:'factory',id:DB.factory.id,name:DB.factory.name},stars:stars,
-   transporters:DB.transporters.map(t=>({id:t.id,name:t.name,blocked:t.blocked})),rfqs:rfqs,trips:DB.trips,serverNow:nowI()};
+   transporters:DB.transporters.map(t=>({id:t.id,name:t.name,blocked:t.blocked,pending:!!t.pending})),rfqs:rfqs,trips:DB.trips,serverNow:nowI()};
  }
  const t=DB.transporters.find(x=>x.id===u.id);
  const mine=DB.rfqs.filter(r=>!r.cancelled&&r.vendors.indexOf(u.id)>=0).map(r=>{
@@ -88,13 +88,22 @@ http.createServer(async(req,res)=>{
   if(d.id===DB.factory.id&&d.pass===DB.factory.pass)return J(res,200,{ok:true,token:issue({role:'factory'}),role:'factory',id:'factory',name:DB.factory.name});
   const t=DB.transporters.find(x=>x.id===String(d.id||'').toLowerCase());
   if(t&&t.pass===d.pass){if(t.blocked)return J(res,403,{ok:false,err:'ID block hai — company se baat karo'});
+   if(t.pending)return J(res,403,{ok:false,err:'⏳ Khata ABHI approval mein hai — factory approve karegi, phir login hoga'});
    return J(res,200,{ok:true,token:issue({role:'tpt',id:t.id}),role:'tpt',id:t.id,name:t.name});}
   return J(res,401,{ok:false,err:'Galat ID ya password'});}
+ if(u==='/api/register'){
+  const rid=String(d.id||'').toLowerCase().replace(/[^a-z0-9_]/g,'');
+  if(rid.length<3)return J(res,400,{ok:false,err:'ID kam se kam 3 akshar (a-z 0-9 _)'});
+  if(!String(d.name||'').trim())return J(res,400,{ok:false,err:'Company ka naam likho'});
+  if(String(d.pass||'').trim().length<4)return J(res,400,{ok:false,err:'Password kam se kam 4 akshar'});
+  if(DB.transporters.some(x=>x.id===rid)||rid===DB.factory.id)return J(res,400,{ok:false,err:'Ye ID pehle se hai — doosri chuno'});
+  DB.transporters.push({id:rid,pass:String(d.pass).trim(),name:String(d.name).trim().slice(0,40),blocked:false,pending:true});
+  save();return J(res,200,{ok:true});}
  const me=auth(req.headers);if(!me)return J(res,401,{ok:false,err:'login phir se'});
  const isF=me.role==='factory';
  if(u==='/api/rfq'&&isF){
   const o=+d.openT,cl=+d.closeT;if(!(o<cl))return J(res,400,{ok:false,err:'Closing time, opening ke BAAD rakhna'});
-  const vs=(d.vendors||[]).filter(v=>DB.transporters.some(t=>t.id===v&&!t.blocked));
+  const vs=(d.vendors||[]).filter(v=>DB.transporters.some(t=>t.id===v&&!t.blocked&&!t.pending));
   if(!vs.length)return J(res,400,{ok:false,err:'Kam se kam 1 transporter chuno'});
   const r={id:DB.nextRfq++,pickup:"Survey No-336&334, P2 Village-Vankas, Tal-Umbergaon, Valsad, Gujarat 396150",
    city:String(d.city||''),pin:String(d.pin||''),km:+d.km||0,weight:Math.max(1,parseFloat(d.weight)||12),unit:'MT',
@@ -123,6 +132,8 @@ http.createServer(async(req,res)=>{
   if(id.length<3||!d.name)return J(res,400,{ok:false,err:'ID+Naam dono likho'});
   if(DB.transporters.some(x=>x.id===id)||id===DB.factory.id)return J(res,400,{ok:false,err:'Ye ID pehle se hai'});
   DB.transporters.push({id:id,pass:String(d.pass||'').trim()||'pass123',name:String(d.name).slice(0,40),blocked:false});save();return J(res,200,{ok:true});}
+ if(u==='/api/tpt/approve'&&isF){const t=DB.transporters.find(x=>x.id===d.id);if(!t)return J(res,404,{ok:false,err:'nahi mila'});
+  t.pending=false;save();return J(res,200,{ok:true});}
  if(u==='/api/tpt/block'&&isF){const t=DB.transporters.find(x=>x.id===d.id);if(!t)return J(res,404,{ok:false,err:'nahi mila'});
   t.blocked=!!d.blocked;save();return J(res,200,{ok:true});}
  if(u==='/api/tpt/remove'&&isF){DB.transporters=DB.transporters.filter(x=>x.id!==d.id);save();return J(res,200,{ok:true});}

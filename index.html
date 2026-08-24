@@ -237,6 +237,15 @@ function notifOn(){if(!('Notification' in window)){toast('Is browser me notifica
  Notification.requestPermission().then(p=>toast(p==='granted'?'🔔 On! Naya RFQ aate hi ghanta bajega 🔔':'😶 Browser ne mana kar diya'));}
 function st(ic,cls,n,lbl,onclick){return '<div class="stat"'+(onclick?' style="cursor:pointer" onclick="'+onclick+'"':'')+'><span class="sico '+cls+'">'+ic+'</span><b>'+n+'</b><span>'+lbl+'</span></div>';}
 
+function tglReg(){const b=$('regBox');if(b)b.style.display=b.style.display==='none'?'block':'none';}
+function doRegister(){const nm=$('rgName').value.trim(),id=$('rgId').value.trim().toLowerCase().replace(/[^a-z0-9_]/g,''),pw=$('rgPw').value.trim();
+ if(!nm){toast('Company ka naam likho');return;}
+ if(id.length<3){toast('ID kam se kam 3 akshar (a-z 0-9 _)');return;}
+ if(pw.length<4){toast('Password kam se kam 4 akshar');return;}
+ api('register',{id:id,pass:pw,name:nm},d=>{
+  if(!d.ok){toast('⚠️ '+(d.err||'Nahi hua'));return;}
+  $('rgName').value='';$('rgId').value='';$('rgPw').value='';tglReg();
+  toast('✅ Register ho gaya! Ab factory Approve karegi 🏭');});}
 function render(noAnim){
  if(!ME){$('tabs').innerHTML='';$('who').textContent='Krishang Alloy 🚚';
   $('main').className='body anim';
@@ -249,7 +258,14 @@ function render(noAnim){
   +'<span class="lbl">Password</span><input id="lpw" type="password">'
   +'<div style="height:14px"></div><button class="btn btn-o" style="width:100%" onclick="doLogin()">LOGIN →</button>'
   +'<div class="featStrip"><span>🔒 Sealed Bidding</span><span>⭐ Live Rating</span><span>🛰️ SIM Tracking</span><span>📥 Excel Export</span></div>'
-  +'<div class="mut" style="margin-top:12px;text-align:center;line-height:1.75">🏢 Company: <b>factory / factory123</b><br>🚛 Transporter: <b>annu / pass123</b> (ya kk, krishna, ram)</div>'
+  +'<div id="regBox" style="display:none;margin-top:12px;border-top:1px dashed #ddd;padding-top:12px">'
+  +'<span class="lbl">Company / Transport ka naam</span><input id="rgName" placeholder="e.g. Sharma Roadlines">'
+  +'<span class="lbl">Apni ID banao</span><input id="rgId" placeholder="3+ akshar — chhote a-z, 0-9, _">'
+  +'<span class="lbl">Apna Password banao</span><input id="rgPw" type="password" placeholder="4+ akshar">'
+  +'<div style="height:8px"></div><button class="btn btn-o" style="width:100%" onclick="doRegister()">🆕 REGISTER</button>'
+  +'<div class="mut" style="font-size:12px;margin-top:6px;text-align:center">Register ke baad factory 🏭 Approve karegi — phir login hoga</div></div>'
+  +'<div class="mut" style="margin-top:14px;text-align:center"><span style="cursor:pointer;text-decoration:underline" onclick="tglReg()">🆕 <b>Naya Transporter? Register karo</b> — apni ID aur password khud banao</span></div>'
+  +'<div class="mut" style="text-align:center;font-size:11px;margin-top:10px;opacity:.6">NANAMI v3.1</div>'
   +'</div></div>';
   return;}
  const isF=ME.role==='factory';
@@ -491,10 +507,10 @@ function coTpt(){return '<div class="h1">👥 My Transporters — chaabi aapke p
  +'<div class="card"><span class="stepno">NAYA TRANSPORTER</span>'
  +'<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">'
  +'<input id="ntId" placeholder="Login ID" style="flex:1;min-width:110px"><input id="ntName" placeholder="Naam" style="flex:2;min-width:140px">'
- +'<input id="ntPass" placeholder="Pass (default pass123)" style="flex:1;min-width:120px"></div><div style="height:10px"></div>'
+ +'<input id="ntPass" placeholder="Pass (aapki marzi)" style="flex:1;min-width:120px"></div><div style="height:10px"></div>'
  +'<button class="btn btn-o" style="width:100%" onclick="tptAdd()">➕ Add Transporter</button></div>'
- +DB.transporters.map(t=>'<div class="card"><b>'+t.name+'</b> <span class="mut">('+t.id+')</span> '+(t.blocked?'<span class="pill p-red">BLOCKED</span>':'')
- +'<br><span class="star">★ '+ratingOf(t.id)+'</span>'
+ +DB.transporters.slice().sort((a,b)=>(b.pending?1:0)-(a.pending?1:0)).map(t=>'<div class="card"><b>'+t.name+'</b> <span class="mut">('+t.id+')</span> '+(t.blocked?'<span class="pill p-red">BLOCKED</span>':'')+(t.pending?'<span class="pill p-amb">PENDING ⏳</span>':'')
+ +'<br><span class="star">★ '+ratingOf(t.id)+'</span>'+(t.pending?' <button class="btn btn-o btn-sm" onclick="tptAppr(\''+t.id+'\')">✅ APPROVE KARO</button>':'')
  +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'
  +'<button class="btn btn-g btn-sm" onclick="tptRen(\''+t.id+'\')">✏️ Naam</button>'
  +'<button class="btn btn-g btn-sm" onclick="tptReset(\''+t.id+'\')">🔑 Pass Reset</button>'
@@ -509,6 +525,8 @@ function tptReset(id){const p=prompt('Naya password (khali = pass123):');if(p===
  api('tpt/resetPass',{id:id,pass:p.trim()||'pass123'},d=>{toast(d.ok?'🔑 Reset ho gaya!':'⚠️ Nahi hua');after();});}
 function tptRen(id){const t2=DB.transporters.find(x=>x.id===id);const n=prompt('Naya naam:',t2.name);if(!n)return;
  api('tpt/rename',{id:id,name:n.trim().slice(0,40)},d=>{toast(d.ok?'Naam badal gaya':'⚠️ Nahi hua');after();});}
+
+function tptAppr(id){api('tpt/approve',{id:id},d=>{toast(d.ok?'✅ Approve ho gaya — ab wo login kar sakta hai':'⚠️ Nahi hua');after();});}
 
 // ================= TRANSPORTER =================
 function tptList(){const mine=DB.rfqs.filter(r=>!r.cancelled&&r.vendors.indexOf(ME.id)>=0).sort((a,b)=>b.id-a.id);
