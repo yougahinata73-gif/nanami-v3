@@ -159,7 +159,7 @@ details.trackD summary{font-size:12.5px;font-weight:800;color:#1e4b8f;cursor:poi
 
 <script>
 // ================= TRY DB =================
-const CITIES=[
+let CITIES=[
  {n:"Chakan, Maharashtra",pin:"410501",km:294},{n:"Talegaon Dabhade, Maharashtra",pin:"410506",km:294},
  {n:"Mumbai, Maharashtra",pin:"400001",km:205},{n:"Navi Mumbai, Maharashtra",pin:"400614",km:195},
  {n:"Thane, Maharashtra",pin:"400601",km:190},{n:"Bhiwandi, Maharashtra",pin:"421302",km:172},
@@ -196,9 +196,10 @@ let DB=null,TOKEN=null,LAST='';
 try{TOKEN=sessionStorage.getItem('nv3t')||null;}catch(e){}
 function save(){}
 function api(path,body,cb){fetch('/api/'+path,{method:'POST',headers:Object.assign({'Content-Type':'application/json'},TOKEN?{Authorization:'Bearer '+TOKEN}:{}),body:JSON.stringify(body||{})}).then(r=>r.json()).then(cb).catch(()=>toast('⚠️ Server se sampark nahi'));}
-function refresh(cb){fetch('/api/state',{headers:TOKEN?{Authorization:'Bearer '+TOKEN}:{}}).then(r=>r.json()).then(d=>{if(!d||d.ok===false){TOKEN=null;try{sessionStorage.removeItem('nv3t');}catch(e){}ME=null;render();return;}LAST=JSON.stringify(d);DB=d;if(cb)cb();}).catch(()=>{if(cb)cb();});}
+function noNow(d){const c=Object.assign({},d);delete c.serverNow;return c;}
+function refresh(cb){fetch('/api/state',{headers:TOKEN?{Authorization:'Bearer '+TOKEN}:{}}).then(r=>r.json()).then(d=>{if(!d||d.ok===false){TOKEN=null;try{sessionStorage.removeItem('nv3t');}catch(e){}ME=null;render();return;}LAST=JSON.stringify(noNow(d));DB=d;if(d.cities&&d.cities.length)CITIES=d.cities;if(cb)cb();}).catch(()=>{if(cb)cb();});}
 function after(){refresh(()=>render(1));}
-function poll(){if(!TOKEN)return;fetch('/api/state',{headers:TOKEN?{Authorization:'Bearer '+TOKEN}:{}}).then(r=>r.json()).then(d=>{if(!d||d.ok===false)return;const s=JSON.stringify(d);if(s===LAST)return;LAST=s;DB=d;
+function poll(){if(!TOKEN)return;fetch('/api/state',{headers:TOKEN?{Authorization:'Bearer '+TOKEN}:{}}).then(r=>r.json()).then(d=>{if(!d||d.ok===false)return;const s=JSON.stringify(noNow(d));if(s===LAST)return;LAST=s;DB=d;if(d.cities&&d.cities.length)CITIES=d.cities;
  if(ME&&ME.role==='tpt')tptNewsCheck();
  const ae=document.activeElement;
  if(!$('modalHost').innerHTML&&!(ae&&(ae.tagName==='INPUT'||ae.tagName==='SELECT'||ae.isContentEditable)))render(1);}).catch(()=>{});}
@@ -254,18 +255,19 @@ function render(noAnim){
   +'<div style="padding:14px 14px 16px">'
   +'<div class="h1" style="text-align:center">'+greetWord()+'</div>'
   +'<div class="mut" style="text-align:center;margin-bottom:4px">Welcome! 👋 Login karo:</div>'
-  +'<span class="lbl">ID</span><input id="lid" placeholder="apni ID">'
-  +'<span class="lbl">Password</span><input id="lpw" type="password">'
+  +'<span class="lbl">ID</span><input id="lid" placeholder="apni ID" autocapitalize="off" autocomplete="off">'
+  +'<span class="lbl">Password</span><input id="lpw" type="password" autocapitalize="off" autocomplete="off">'
+  +'<div class="mut" style="font-size:11px;margin-top:2px">🔑 Password bhool gaye? Factory se bolo — wo <b>Reset</b> kar dungi (naya password aapko batayegi)</div>'
   +'<div style="height:14px"></div><button class="btn btn-o" style="width:100%" onclick="doLogin()">LOGIN →</button>'
   +'<div class="featStrip"><span>🔒 Sealed Bidding</span><span>⭐ Live Rating</span><span>🛰️ SIM Tracking</span><span>📥 Excel Export</span></div>'
   +'<div id="regBox" style="display:none;margin-top:12px;border-top:1px dashed #ddd;padding-top:12px">'
   +'<span class="lbl">Company / Transport ka naam</span><input id="rgName" placeholder="e.g. Sharma Roadlines">'
-  +'<span class="lbl">Apni ID banao</span><input id="rgId" placeholder="3+ akshar — chhote a-z, 0-9, _">'
-  +'<span class="lbl">Apna Password banao</span><input id="rgPw" type="password" placeholder="4+ akshar">'
+  +'<span class="lbl">Apni ID banao</span><input id="rgId" placeholder="3+ akshar — chhote a-z, 0-9, _" autocapitalize="off" autocomplete="off">'
+  +'<span class="lbl">Apna Password banao</span><input id="rgPw" type="password" placeholder="4+ akshar" autocapitalize="off" autocomplete="off">'
   +'<div style="height:8px"></div><button class="btn btn-o" style="width:100%" onclick="doRegister()">🆕 REGISTER</button>'
   +'<div class="mut" style="font-size:12px;margin-top:6px;text-align:center">Register ke baad factory 🏭 Approve karegi — phir login hoga</div></div>'
   +'<div class="mut" style="margin-top:14px;text-align:center"><span style="cursor:pointer;text-decoration:underline" onclick="tglReg()">🆕 <b>Naya Transporter? Register karo</b> — apni ID aur password khud banao</span></div>'
-  +'<div class="mut" style="text-align:center;font-size:11px;margin-top:10px;opacity:.6">NANAMI v3.1</div>'
+  +'<div class="mut" style="text-align:center;font-size:11px;margin-top:10px;opacity:.6">NANAMI v3.7 FINAL</div>'
   +'</div></div>';
   return;}
  const isF=ME.role==='factory';
@@ -319,8 +321,20 @@ function coList(){const rf=DB.rfqs.filter(r=>!r.cancelled).sort((a,b)=>b.id-a.id
   +'<td class="cd" data-close="'+r.closeT+'" data-id="'+r.id+'">'+fmtT(r.closeT)+'</td>'
   +'<td>'+(typeof r.bc==='number'?r.bc:Object.keys(r.bids).length)+'</td>'
   +'<td>'+((isClosed(r)||r.award)&&rk[0]?'₹'+money(rk[0].rate):'🔒')+'</td><td>'+stPill(stt)+'</td></tr>';}).join('')
- +'</table></div><div class="mut" style="margin:8px 4px">👆 Row tap karo — full detail khulegi</div>';}
+ +'</table></div><div class="mut" style="margin:8px 4px">👆 Row tap karo — full detail khulegi</div>'+cityCard();}
 
+function cityCard(){if(!DB||!DB.cities)return '';
+ return '<div class="card"><span class="stepno">📍 CITY LIST ('+DB.cities.length+') — India bhar ke sheher • khud jodo/hatao</span>'
+ +'<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">'
+ +'<input id="ctN" placeholder="Naam — jaise: Bharuch, Gujarat" style="flex:2;min-width:170px" autocapitalize="off">'
+ +'<input id="ctP" placeholder="PIN (6 ank)" inputmode="numeric" maxlength="6" style="flex:1;min-width:80px">'
+ +'<input id="ctK" placeholder="Km Vankas se" inputmode="numeric" style="flex:1;min-width:80px"></div><div style="height:10px"></div>'
+ +'<button class="btn btn-o" style="width:100%" onclick="cityAdd()">➕ City Jodo</button>'
+ +'<div class="mut" style="margin-top:8px;font-size:12px">💡 Alawa koi bhi city RFQ/Trip banate waqt seedha likh sakte ho — list mein na bhi ho to chalega.</div></div>';}
+function cityAdd(){const n=$('ctN').value.trim(),p=$('ctP').value.trim(),k=$('ctK').value.trim();
+ api('city/add',{n:n,pin:p,km:k},d=>{toast(d.ok?'📍 City jud gayi!':('⚠️ '+(d.err||'Nahi hua')));after();});}
+function cityRem(){const n=prompt('Hataane wali city ka EXACT naam likho:');if(!n)return;
+ api('city/remove',{n:n.trim()},d=>{toast(d.ok?'🗑 Hata di':'⚠️ Nahi mili');after();});}
 function coDetail(id){const r=DB.rfqs.find(x=>x.id===id);if(!r)return;const stt=stOf(r);const rk=ranks(r);const bc=(typeof r.bc==='number'?r.bc:Object.keys(r.bids).length);
  let mid='';
  if(stt==='Live'||stt==='Scheduled'){
@@ -358,7 +372,7 @@ function fillWizard(){const wz=$('wz');if(!wz)return;const pad=n=>String(n).padS
  const fD=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
  if(W.step===1){wz.innerHTML='<div class="dots"><div class="dot on"></div><div class="dot"></div><div class="dot"></div></div>'
  +'<div class="card"><span class="stepno">PAGE 1 / 3 • ROUTE</span><div class="h1">Maal Kahan Se, Kahan Tak? 📍</div>'
- +'<span class="lbl">Pickup (fixed — Krishang Alloy)</span><div class="kv">🏭 Vankas, Tal-Umbergaon, Valsad, Gujarat 396150 ✔</div>'
+ +'<span class="lbl">Pickup — maal KAHAN SE? (badal sakte ho ✏️)</span><input id="wFrom" value="'+(W.from||'Survey No-336&334, P2 Village-Vankas, Tal-Umbergaon, Valsad, Gujarat 396150')+'">'
  +'<span class="lbl">Party / Consignee (optional)</span><input list="clW" id="wParty" value="'+W.party+'" placeholder="jaise: MAP Alloys">'
  +'<datalist id="clW">'+CLIENTS.map(c=>'<option value="'+c+'">').join('')+'</datalist>'
  +'<span class="lbl">Delivery City (likho — magic dekho!)</span><input list="cities" id="wCity" placeholder="jaise: chak..." autocomplete="off">'
@@ -366,9 +380,12 @@ function fillWizard(){const wz=$('wz');if(!wz)return;const pad=n=>String(n).padS
  +'<div id="wMagic" class="magic hidden"></div><div style="height:14px"></div>'
  +'<button class="btn btn-o" style="width:100%" onclick="wzNext1()">Next → Page 2</button></div>';
  $('wParty').addEventListener('input',e=>{W.party=e.target.value;});
+ $('wFrom').addEventListener('input',e=>{W.from=e.target.value;});
  $('wCity').addEventListener('input',e=>{const c=CITIES.find(x=>x.n===e.target.value);const m=$('wMagic');
   if(c){W.city=c;m.classList.remove('hidden');m.innerHTML='✨ PIN <b>'+c.pin+'</b> auto! • 🛣️ Driving distance <b>'+c.km+' Km</b>';}
-  else{W.city=null;m.classList.add('hidden');}});}
+  else{const t=e.target.value.trim();
+  if(t.length>=3){m.classList.remove('hidden');m.innerHTML='🆕 Ye city list mein nahi — PIN/km likh do (optional):<div style="display:flex;gap:6px;margin-top:6px"><input id="wNP" placeholder="PIN (6 ank)" inputmode="numeric" style="flex:1"><input id="wNK" placeholder="Km (lagbhag)" inputmode="numeric" style="flex:1"></div>';W.city={n:t,pin:'',km:0,fresh:1};}
+  else{W.city=null;m.classList.add('hidden');}}});}
  if(W.step===2){wz.innerHTML='<div class="dots"><div class="dot on"></div><div class="dot on"></div><div class="dot"></div></div>'
  +'<div class="card"><span class="stepno">PAGE 2 / 3 • CARGO</span><div class="h1">Kitna Maal + Rate Info ⚖️</div>'
  +'<span class="lbl">Weight (MT)</span><input type="number" id="wWt" value="'+W.wt+'">'
@@ -384,7 +401,10 @@ function fillWizard(){const wz=$('wz');if(!wz)return;const pad=n=>String(n).padS
   s.onclick=()=>{W.veh=v;[...vc.children].forEach(x=>x.classList.remove('on'));s.classList.add('on');};vc.appendChild(s);});
  const bch=$('wBody');['Dala Body','Full Band','Half Band','Open'].forEach(v=>{const s2=document.createElement('span');
   s2.className='chip'+(v===W.body?' on':'');s2.textContent='📦 '+v;
-  s2.onclick=()=>{W.body=v;[...bch.children].forEach(x=>x.classList.remove('on'));s2.classList.add('on');};bch.appendChild(s2);});}
+  s2.onclick=()=>{W.body=v;[...bch.children].forEach(x=>x.classList.remove('on'));s2.classList.add('on');};bch.appendChild(s2);});
+ $('wWt').addEventListener('input',e=>{W.wt=e.target.value;});
+ $('wQbr').addEventListener('input',e=>{W.qbr=e.target.value;});
+ $('wRem').addEventListener('input',e=>{W.rem=e.target.value;});}
  if(W.step===3){wz.innerHTML='<div class="dots"><div class="dot on"></div><div class="dot on"></div><div class="dot on"></div></div>'
  +'<div class="card"><span class="stepno">PAGE 3 / 3 • TIME + TRANSPORTERS</span><div class="h1">Kab Khule, Kab Band? ⏰</div>'
  +'<span class="lbl">Opening Time</span><input type="datetime-local" id="wOpen" value="'+fD(new Date())+'">'
@@ -394,14 +414,16 @@ function fillWizard(){const wz=$('wz');if(!wz)return;const pad=n=>String(n).padS
  +DB.transporters.filter(t=>!t.blocked).map(t=>'<label class="vend"><input type="checkbox" value="'+t.id+'" checked> '+t.name+' <small class="star">★ '+ratingOf(t.id)+'</small></label>').join('')
  +'<div style="display:flex;gap:8px;margin-top:4px"><button class="btn btn-n" style="flex:1" onclick="W.step=2;fillWizard()">← Back</button>'
  +'<button class="btn btn-o" style="flex:1" onclick="wzSubmit()">🚀 Submit RFQ!</button></div></div>';}}
-function wzNext1(){if(!W.city){toast('City chuno — magic dekho ✨');return;}W.step=2;fillWizard();}
+function wzNext1(){if(W.city&&W.city.fresh){const p=document.getElementById('wNP'),k=document.getElementById('wNK');
+  W.city={n:W.city.n,pin:(p?p.value.replace(/\D/g,''):''),km:(k?parseInt(k.value)||0:0)};}
+ if(!W.city){toast('City chuno ya likho ✨');return;}W.step=2;fillWizard();}
 function wzNext2(){W.wt=$('wWt').value||12;W.qbr=$('wQbr').value;W.rem=$('wRem').value;W.step=3;fillWizard();}
 function wzSubmit(){const vendors=[...document.querySelectorAll('.vend input:checked')].map(i=>i.value);
  if(!vendors.length){toast('Kam se kam 1 transporter ✅');return;}
  const o=Date.parse($('wOpen').value),cl=Date.parse($('wClose').value);
  if(!(o<cl)){toast('Closing time, opening ke BAAD rakhna');return;}
  const wt=Math.max(1,parseFloat(W.wt)||12),cname=W.city.n,veh=W.veh,bd=W.body,qb=parseFloat(W.qbr)||0,rm=W.rem||'';
- api('rfq',{city:cname,pin:W.city.pin,km:W.city.km,party:W.party||'',weight:wt,vehicle:veh,body:bd,
+ api('rfq',{pickup:(W.from||''),city:cname,pin:W.city.pin,km:W.city.km,party:W.party||'',weight:wt,vehicle:veh,body:bd,
   commodity:'Aluminum Alloy',qbr:qb,remarks:rm,openT:o,closeT:cl,vendors:vendors},dd=>{
   if(!dd.ok){toast('⚠️ '+(dd.err||'RFQ nahi bana'));return;}
   W.step=1;W.city=null;W.party='';
@@ -434,7 +456,7 @@ function tripCard(t){const done=t.status==='done';
  +'<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap">'
  +'<b style="color:#16294d">🚛 '+t.gadi+'</b>'
  +(t.status==='live'?'<span class="pill p-green"><span class="simpulse"></span>🛰️ LIVE</span>':t.status==='pend'?'<span class="pill p-amber">📱 Consent Pending</span>':'<span class="pill p-blue">🏁 Delivered</span>')
- +'</div><div class="mut" style="margin-top:2px">➡️ 📦 <b>'+t.party+'</b>'+(t.city?' → '+t.city+' <b>'+t.pin+'</b>':'')+(t.rfq?' • RFQ #'+t.rfq:'')+' • 📱 '+t.mob+'</div>';
+ +'</div><div class="mut" style="margin-top:2px">'+(t.from?'🚩 '+t.from+' ':'')+'➡️ 📦 <b>'+t.party+'</b>'+(t.city?' → '+t.city+' <b>'+t.pin+'</b>':'')+(t.rfq?' • RFQ #'+t.rfq:'')+(t.dn?' • 👤 <b>'+t.dn+'</b>':'')+' • 📱 '+t.mob+'</div>';
  if(t.status==='pend'){
   h+='<div style="background:#fffbeb;border:1.5px dashed #f59e0b;border-radius:12px;padding:10px;margin-top:8px;font-size:12.5px;font-weight:700;color:#92400e">📱 Driver <b>'+t.mob+'</b> ko consent SMS gaya hai. Wo link khol ke bas <b>✓ Haan</b> dabayega — tracking chalu!<div class="mut" style="margin-top:3px">Jab driver SMS me ✓ dabaye, niche button se mark karo 👇</div></div>';
  } else if(!done){
@@ -456,7 +478,7 @@ function tripSet(id,stt){api('trip/status',{tripId:id,status:stt},d=>{toast(d.ok
 
 
 let TW=null;
-function openTW(rfqId){TW={step:1,party:'',city:null,mob:'',gadi:'',rfq:0};
+function openTW(rfqId){TW={step:1,party:'',city:null,mob:'',gadi:'',dn:'',from:'',rfq:0};
  if(rfqId){const r=DB.rfqs.find(x=>x.id===rfqId);if(r){TW.rfq=rfqId;TW.party=r.party||'';TW.city=CITIES.find(x=>x.n===r.city)||null;}}
  closeModal();twShow();}
 function twShow(){if(!TW)return;let inner='';
@@ -464,14 +486,17 @@ function twShow(){if(!TW)return;let inner='';
   inner='<span class="stepno">TRIP • STEP 1 / 3</span><div class="h1" style="margin-top:4px">Maal Kiske Paas Ja Raha? 📦</div>'
   +'<span class="lbl">Party / Consignee Naam</span><input list="clN" id="twParty" value="'+TW.party+'" placeholder="jaise: MAP Alloys">'
   +'<datalist id="clN">'+CLIENTS.map(c=>'<option value="'+c+'">').join('')+'</datalist>'
-  +'<span class="lbl">📍 Kis City me ja raha hai? (PIN auto bhar jayega!)</span><input list="cities2" id="twCity" value="'+(TW.city?TW.city.n:'')+'" placeholder="jaise: chak..." autocomplete="off">'
+  +'<span class="lbl">🚩 Maal KAHAN SE ja raha? (From/pickup)</span><input id="twFrom" value="'+(TW.from||'Survey No-336&334, P2 Village-Vankas, Tal-Umbergaon, Valsad, Gujarat 396150')+'">'
+ +'<span class="lbl">📍 Kis City me ja raha hai? (PIN auto bhar jayega!)</span><input list="cities2" id="twCity" value="'+(TW.city?TW.city.n:'')+'" placeholder="jaise: chak..." autocomplete="off">'
   +'<datalist id="cities2">'+CITIES.map(c=>'<option value="'+c.n+'">').join('')+'</datalist>'
   +'<div id="twMagic" class="magic hidden"></div>'
   +'<div class="mut" style="margin-top:6px">💡 Party ka naam ALAG + City ALAG — PIN se exact location track hogi!</div>'
   +'<div style="height:12px"></div><button class="btn btn-o" style="width:100%" onclick="twNext1()">Next → Step 2</button>';
  } else if(TW.step===2){
   inner='<span class="stepno">TRIP • STEP 2 / 3</span><div class="h1" style="margin-top:4px">Driver Ka Mobile? 📱</div>'
-  +'<span class="lbl">Driver Mobile Number</span><input id="twMob" type="tel" maxlength="10" value="'+TW.mob+'" placeholder="10 ank — jaise 9822011204">'
+  +'<span class="lbl">👤 Driver ka Naam</span><input id="twDn" value="'+(TW.dn||'')+'" placeholder="jaise: RAMU SINGH" autocapitalize="off">'
+ +'<span class="lbl">Driver Mobile Number</span><input id="twMob" type="tel" maxlength="10" value="'+TW.mob+'" placeholder="10 ank — jaise 9822011204">'
+ +'<div id="twOld" class="chips" style="margin-top:4px"></div>'
   +'<div class="mut" style="margin-top:6px">📱 Isi number pe consent SMS jayega. Driver ka phone <b>simple</b> ho sakta hai — app/GPS nahi chahiye!</div>'
   +'<div style="height:12px"></div><div style="display:flex;gap:8px"><button class="btn btn-n" style="flex:1" onclick="TW.step=1;twShow()">← Back</button>'
   +'<button class="btn btn-o" style="flex:1" onclick="twNext2()">Next → Step 3</button></div>';
@@ -485,20 +510,31 @@ function twShow(){if(!TW)return;let inner='';
  modal(inner);
  if(TW.step===1){$('twCity').addEventListener('input',e=>{const c=CITIES.find(x=>x.n===e.target.value);const m=$('twMagic');
   if(c){TW.city=c;m.classList.remove('hidden');m.innerHTML='✨ PIN <b>'+c.pin+'</b> auto! • 🛣️ <b>'+c.km+' Km</b>';}
-  else{TW.city=null;m.classList.add('hidden');}});}
- if(TW.step===3){const fc=$('twFleet');FLEET.forEach(g=>{const s=document.createElement('span');
+  else{const t2=e.target.value.trim();
+  if(t2.length>=3){m.classList.remove('hidden');m.innerHTML='🆕 Ye city list mein nahi — PIN/km likh do (optional):<div style="display:flex;gap:6px;margin-top:6px"><input id="twNP" placeholder="PIN (6 ank)" inputmode="numeric" style="flex:1"><input id="twNK" placeholder="Km (lagbhag)" inputmode="numeric" style="flex:1"></div>';TW.city={n:t2,pin:'',km:0,fresh:1};}
+  else{TW.city=null;m.classList.add('hidden');}}});}
+ if(TW.step===2){const oc=$('twOld');const dr=(DB.drivers||[]);
+  if(oc&&dr.length)dr.slice(-8).reverse().forEach(x=>{const c2=document.createElement('span');c2.className='chip';
+   c2.textContent='👤 '+(x.dn||'?')+' • '+x.mob;c2.onclick=()=>{TW.dn=x.dn;TW.mob=x.mob;TW.gadi=x.g;const ni=$('twDn'),mi=$('twMob');
+   if(ni)ni.value=x.dn;if(mi)mi.value=x.mob;toast('✨ Auto bhar diya ('+x.g+')');};oc.appendChild(c2);});}
+ if(TW.step===3){const fc=$('twFleet');const allG=FLEET.slice();(DB.drivers||[]).forEach(x=>{if(x.g&&allG.indexOf(x.g)<0)allG.push(x.g);});allG.forEach(g=>{const s=document.createElement('span');
   s.className='chip'+(g===TW.gadi?' on':'');s.textContent='🚛 '+g;
   s.onclick=()=>{TW.gadi=g;[...fc.children].forEach(x=>x.classList.remove('on'));s.classList.add('on');const gi=$('twGadi');if(gi)gi.value='';};
   fc.appendChild(s);});
   $('twGadi').addEventListener('input',()=>{if($('twGadi').value.trim()){TW.gadi='';[...fc.children].forEach(x=>x.classList.remove('on'));}});}}
 function twNext1(){const v=$('twParty').value.trim();if(!v){toast('Party ka naam likho');return;}
  const cv=$('twCity').value.trim();const c=CITIES.find(x=>x.n===cv);
- if(!c){TW.city=null;toast('City list se chuno — PIN auto hoga ✨');return;}
- TW.party=v;TW.city=c;TW.step=2;twShow();}
-function twNext2(){const v=$('twMob').value.replace(/\D/g,'');if(v.length!==10){toast('Sahi 10-ank mobile daalo 📱');return;}TW.mob=v;TW.step=3;twShow();}
+ if(!c){if(!TW.city||!TW.city.fresh||TW.city.n!==cv){toast('City likho ya list se chuno ✨');TW.city=null;return;}
+  const tp=document.getElementById('twNP'),tk=document.getElementById('twNK');
+  TW.city={n:cv,pin:(tp?tp.value.replace(/\D/g,''):''),km:(tk?parseInt(tk.value)||0:0)};}
+ TW.party=v;TW.city=c||TW.city;const fr=$('twFrom');TW.from=fr?fr.value.trim():TW.from;TW.step=2;twShow();}
+function twNext2(){const n=($('twDn')?$('twDn').value.trim():'')||TW.dn;const v=$('twMob').value.replace(/\D/g,'');
+ if(n.length<2){toast('Driver ka NAAM likho 👤');return;}
+ if(v.length!==10){toast('Sahi 10-ank mobile daalo 📱');return;}
+ TW.dn=n;TW.mob=v;TW.step=3;twShow();}
 function twCreate(){const manual=($('twGadi')?$('twGadi').value.trim():'');const g=manual||TW.gadi;
  if(!g){toast('Gaadi chuno ya number likho 🚛');return;}
- api('trip',{party:TW.party,city:TW.city.n,pin:TW.city.pin,mob:TW.mob,gadi:g,rfq:TW.rfq||0},d=>{
+ api('trip',{party:TW.party,city:TW.city.n,pin:TW.city.pin,mob:TW.mob,dn:TW.dn||'',from:TW.from||'',gadi:g,rfq:TW.rfq||0},d=>{
   if(!d.ok){toast('⚠️ '+(d.err||'Trip nahi bana'));return;}
   TW=null;closeModal();TAB='track';after();toast('📱 Driver ko consent SMS gaya!');});}
 
@@ -627,5 +663,6 @@ if(TOKEN){refresh(()=>{if(DB)ME=DB.me;render();});}
 else render();
 setInterval(poll,5000);
 </script>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a3037fc84c79b5d1',t:'MTc4NzU4NjQ4NA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"1954b47c125f43f8b4338b3c4f804e4f"}' crossorigin="anonymous"></script>
 </body>
 </html>
